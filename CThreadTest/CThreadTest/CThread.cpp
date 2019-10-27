@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <sys/eventfd.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 
 //-----------------------------------------------------------------------------
@@ -19,7 +22,7 @@ CThread::CThread(const char* pszId)
 	m_strId = "";
 	m_bInitFlag = false;
 	m_iError = 0;
-	m_hThread = NULL;
+	m_hThread = 0;
 	
 	// クラス名を保持
 	if (pszId != NULL)
@@ -31,6 +34,13 @@ CThread::CThread(const char* pszId)
 	pthread_mutexattr_init(&m_tMutexAttr);
 	iRet = pthread_mutexattr_settype(&m_tMutexAttr,PTHREAD_PROCESS_PRIVATE);		// スレッド間の排他
 	if (iRet != 0)
+	{
+		return;
+	}
+
+	// スレッド終了用イベント初期化
+	CEVENT_RET_ENUM eEventRet = m_cThreadEndEvent.Init();
+	if (eEventRet != CEVENT_RET_SUCCESS)
 	{
 		return;
 	}
@@ -67,7 +77,7 @@ CTHREAD_RET_ENUM CThread::Start()
 	}
 
 	// 既に動作している場合
-	if (m_hThread != NULL)
+	if (m_hThread != 0)
 	{
 		return CTHREAD_RET_ERROR_AlREADY_STARTED;
 	}
@@ -91,6 +101,9 @@ CTHREAD_RET_ENUM CThread::Start()
 //-----------------------------------------------------------------------------
 CTHREAD_RET_ENUM CThread::Stop()
 {
+	CEVENT_RET_ENUM			eRet = CEVENT_RET_SUCCESS;
+
+
 	// 初期化処理で失敗している場合
 	if (m_bInitFlag == false)
 	{
@@ -98,15 +111,20 @@ CTHREAD_RET_ENUM CThread::Stop()
 	}
 
 	// 既に停止している場合
-	if (m_hThread == NULL)
+	if (m_hThread == 0)
 	{
 		return CTHREAD_RET_SUCCESS;
 	}
 
 	// スレッドを停止させる
-	pthread_cancel(m_hThread);
+	eRet = m_cThreadEndEvent.SetEvent();
+	if (eRet != CEVENT_RET_SUCCESS)
+	{
+		// スレッド停止に失敗した場合は、強制的に終了させる
+		pthread_cancel(m_hThread);
+	}
 	pthread_join(m_hThread, NULL);
-	m_hThread = NULL;
+	m_hThread = 0;
 
 	return CTHREAD_RET_SUCCESS;
 }
@@ -130,32 +148,43 @@ void* CThread::ThreadLauncher(void* pUserData)
 //-----------------------------------------------------------------------------
 void CThread::ThreadProc()
 {
+	CEVENT_RET_ENUM eRet = CEVENT_RET_SUCCESS;
 	DWORD			dwCount = 1;
-	timespec		tTimeSpec;
-	timespec		tTimeSpec2;
+	bool			bLoop = true;
+	DWORD			dwTimeout = 0;
 
 
 	printf("-- Thread %s Start --\n", m_strId.c_str());
 
-	// Sleep時間を生成
-	tTimeSpec2.tv_sec = 0;
-	tTimeSpec2.tv_nsec = (((rand() % 9) + 1) * 1000 * 1000);
 
 	// pthread_testcancelが呼ばれるまで処理を続ける
-	while (1)
+	while (bLoop)
 	{
 		// Sleep時間を生成
-		tTimeSpec.tv_sec = (rand() % 5);
-		tTimeSpec.tv_nsec = (((rand() % 9) + 1) * 1000 * 1000);
+		dwTimeout = ((rand() % 30) + 1) * 100;
 
-		pthread_mutex_lock(&(this->m_hMutex));
-		printf("[%s] Count : %lu \n", this->m_strId.c_str(), dwCount++);
-		nanosleep(&tTimeSpec, NULL);
-		pthread_mutex_unlock(&(this->m_hMutex));
+		// 終了イベントが通知を待つ
+		eRet = m_cThreadEndEvent.Wait(dwTimeout);
+		switch (eRet) {
+		case CEVENT_RET_WAIT_TIMEOUT:
+//			pthread_mutex_lock(&(this->m_hMutex));
+			printf("[%s] Count : %lu \n", this->m_strId.c_str(), dwCount++);
+//			pthread_mutex_unlock(&(this->m_hMutex));
+			break;
 
-		nanosleep(&tTimeSpec2, NULL);
+		case CEVENT_RET_RECIVE_EVENT:
+			m_cThreadEndEvent.ResetEvent();
+			bLoop = false;
+			break;
 
+		default:
+			printf("CEvent::Wait error. \n");
+			bLoop = false;
+			break;
+		}
 	}
+
+	printf("-- Thread %s End --\n", m_strId.c_str());
 }
 
 

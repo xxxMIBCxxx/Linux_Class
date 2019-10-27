@@ -9,6 +9,7 @@
 #include <string.h>
 #include "string"
 #include "Type.h"
+#include "CEvent.h"
 
 
 typedef enum
@@ -34,7 +35,7 @@ private:
 	pthread_t					m_hThread;				// スレッドハンドル
 	pthread_mutexattr_t			m_tMutexAttr;			// ミューテックス属性
 	pthread_mutex_t				m_hMutex;				// ミューテックスハンドル
-
+	CEvent						m_cThreadEndEvent;		// スレッド終了イベント
 
 public:
 	CThread(const char* pszId = NULL);
