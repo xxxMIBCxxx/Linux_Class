@@ -12,6 +12,7 @@
 #include "CEvent.h"
 
 
+// CThreadクラスの結果種別
 typedef enum
 {
 	CTHREAD_RET_SUCCESS = 0x00000000,					// 正常終了
@@ -25,7 +26,7 @@ typedef enum
 
 
 
-
+// CThreadクラス定義
 class CThread
 {
 private:
@@ -42,6 +43,9 @@ public:
 	~CThread();
 	CTHREAD_RET_ENUM Start();
 	CTHREAD_RET_ENUM Stop();
+	int GetErrorNo();
+	bool IsActive();
+	int GetEdfThreadEndEvent();
 
 	virtual void ThreadProc();
 
